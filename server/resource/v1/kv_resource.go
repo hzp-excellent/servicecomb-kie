@@ -30,6 +30,7 @@ import (
 	"github.com/go-chassis/foundation/validator"
 	"github.com/go-chassis/go-chassis/v2/server/restful"
 	"github.com/go-chassis/openlog"
+	structvalidator "github.com/go-playground/validator/v10"
 
 	"github.com/apache/servicecomb-kie/pkg/common"
 	"github.com/apache/servicecomb-kie/pkg/model"
@@ -37,6 +38,14 @@ import (
 	"github.com/apache/servicecomb-kie/server/pubsub"
 	kvsvc "github.com/apache/servicecomb-kie/server/service/kv"
 )
+
+var (
+	validate = structvalidator.New()
+
+	listIDsOverLimitErr = fmt.Errorf("the number of list ids exceeds %d", maxListIDCount)
+)
+
+const maxListIDCount = 100
 
 // KVResource has API about kv operations
 type KVResource struct {
@@ -325,11 +334,24 @@ func (r *KVResource) DeleteList(rctx *restful.Context) {
 		WriteErrResponse(rctx, config.ErrInvalidParams, fmt.Sprintf(FmtReadRequestError, err))
 		return
 	}
-	err := validateDeleteList(domain, project)
+
+	if len(b.IDs) > maxListIDCount {
+		WriteErrResponse(rctx, config.ErrInvalidParams, listIDsOverLimitErr.Error())
+		return
+	}
+
+	err := validate.Struct(b)
 	if err != nil {
 		WriteErrResponse(rctx, config.ErrInvalidParams, err.Error())
 		return
 	}
+
+	err = validateDeleteList(domain, project)
+	if err != nil {
+		WriteErrResponse(rctx, config.ErrInvalidParams, err.Error())
+		return
+	}
+
 	kvs, err := kvsvc.FindManyAndDelete(rctx.Ctx, b.IDs, project, domain)
 	if err != nil {
 		if err == datasource.ErrKeyNotExists {
